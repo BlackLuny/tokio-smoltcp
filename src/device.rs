@@ -10,6 +10,7 @@ mod unix;
 #[cfg(unix)]
 pub use unix::*;
 mod channel_capture;
+pub use channel_capture::ChannelDevice;
 
 /// Default value of `max_burst_size`.
 pub const DEFAULT_MAX_BURST_SIZE: usize = 100;
