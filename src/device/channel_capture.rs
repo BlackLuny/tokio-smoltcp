@@ -11,40 +11,32 @@ use tokio_util::sync::{PollSendError, PollSender};
 use crate::device::AsyncDevice;
 
 /// A device that send and receive packets using a channel.
-pub struct ChannelCapture {
+pub struct ChannelDevice {
     recv: Receiver<io::Result<Vec<u8>>>,
     send: PollSender<Vec<u8>>,
     caps: DeviceCapabilities,
 }
 
-impl ChannelCapture {
-    /// Make a new `ChannelCapture` with the given `recv` and `send` channels.
+impl ChannelDevice {
+    /// Make a new `ChannelDevice` with the given `recv` and `send` channels.
     ///
     /// The `caps` is used to determine the device capabilities. `DeviceCapabilities::max_transmission_unit` must be set.
-    pub fn new<R, S>(recv: R, send: S, caps: DeviceCapabilities) -> Self
-    where
-        S: FnOnce(Receiver<Vec<u8>>) + Send + 'static,
-        R: FnOnce(Sender<io::Result<Vec<u8>>>) + Send + 'static,
-    {
+    pub fn new(caps: DeviceCapabilities) -> (Self, Sender<io::Result<Vec<u8>>>, Receiver<Vec<u8>>) {
         let (tx1, rx1) = channel(1000);
         let (tx2, rx2) = channel(1000);
-        std::thread::spawn(move || {
-            recv(tx2);
-            eprintln!("Recv thread exited")
-        });
-        std::thread::spawn(move || {
-            send(rx1);
-            eprintln!("Send thread exited")
-        });
-        ChannelCapture {
-            send: PollSender::new(tx1),
-            recv: rx2,
-            caps,
-        }
+        (
+            ChannelDevice {
+                send: PollSender::new(tx1),
+                recv: rx2,
+                caps,
+            },
+            tx2,
+            rx1,
+        )
     }
 }
 
-impl Stream for ChannelCapture {
+impl Stream for ChannelDevice {
     type Item = io::Result<Vec<u8>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -56,7 +48,7 @@ fn map_err(e: PollSendError<Vec<u8>>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, e)
 }
 
-impl Sink<Vec<u8>> for ChannelCapture {
+impl Sink<Vec<u8>> for ChannelDevice {
     type Error = io::Error;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -76,7 +68,7 @@ impl Sink<Vec<u8>> for ChannelCapture {
     }
 }
 
-impl AsyncDevice for ChannelCapture {
+impl AsyncDevice for ChannelDevice {
     fn capabilities(&self) -> &DeviceCapabilities {
         &self.caps
     }
